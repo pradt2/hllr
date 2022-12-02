@@ -21,7 +21,7 @@ struct HeapAlloc;
 struct PointerPage;
 
 struct Type {
-    size_t requiredWords;                      // how many words are needed to allocate
+    size_t requiredWords;                   // how many words are needed to allocate
     size_t pointersCount;                   // how many pointers an object of this Type stores
 };
 
