@@ -25,7 +25,8 @@ void* tryAllocate(HeapPage *heapPage, Type *type, bool allowSpecialPurpose = fal
         return nullptr;
     }
 
-    auto *alloc = getNextAlloc(heapPage);
+    auto *alloc = heapPage->freeAllocHint;
+    if (!alloc) alloc = getNextAlloc(heapPage);
 
     while (alloc) {
 
@@ -55,11 +56,15 @@ void* tryAllocate(HeapPage *heapPage, Type *type, bool allowSpecialPurpose = fal
                 splitAlloc->usableWords = oldUsableWords - HEAP_ALLOC_HEADER_WORDS - requiredAllocWords;
                 splitAlloc->type = nullptr;
                 splitAlloc->colour = RUNTIME->gc->colour;
+
+                heapPage->freeAllocHint = splitAlloc;
             } else {
 
                 // we use the allocation as is without changing its size
                 alloc->type = type;
                 alloc->colour = RUNTIME->gc->colour;
+
+                heapPage->freeAllocHint = getNextAlloc(heapPage, alloc);
             }
 
             auto allocPtr = getDataPtr(alloc);
@@ -95,12 +100,16 @@ void* tryAllocate(HeapPage *heapPage, Type *type, bool allowSpecialPurpose = fal
                 splitAlloc->usableWords = cumulativeUsableWords - requiredAllocWords;
                 splitAlloc->type = nullptr;
                 splitAlloc->colour = RUNTIME->gc->colour;
+
+                heapPage->freeAllocHint = splitAlloc;
             } else {
 
                 // we merge the allocations without splitting
                 alloc->usableWords = cumulativeUsableWords;
                 alloc->type = type;
                 alloc->colour = RUNTIME->gc->colour;
+
+                heapPage->freeAllocHint = getNextAlloc(heapPage, alloc);
             }
 
             auto allocPtr = getDataPtr(alloc);
@@ -146,6 +155,7 @@ HeapPage *createNewHeapPage(size_t minUsablePageWords = HEAP_PAGE_SIZE_WORDS) {
     newPageAlloc->type = nullptr;
     newPageAlloc->colour = RUNTIME->gc->colour;
 
+    newPage->freeAllocHint = newPageAlloc;
     return newPage;
 }
 
@@ -199,20 +209,31 @@ void *alloc(Thread *thread, Type *type) {
         freeHeapPages(thread);
     }
 
-    auto *lastPage = thread->heapPage;
+//    auto *lastPage = thread->heapPage;
     auto *heapPage = thread->heapPage;
 
-    while (heapPage) {
-        void* dataPtr = tryAllocate(heapPage, type);
-        if (dataPtr) return dataPtr;
-        lastPage = heapPage;
+//    while (heapPage) {
+//        void* dataPtr = tryAllocate(heapPage, type);
+//        if (dataPtr) return dataPtr;
+//        lastPage = heapPage;
+//        heapPage = heapPage->nextPage;
+//    }
+
+    while (heapPage->nextPage) {
         heapPage = heapPage->nextPage;
     }
 
-    heapPage = createNewHeapPage(HEAP_ALLOC_HEADER_WORDS + type->requiredWords);
-    lastPage->nextPage = heapPage;
+    void* dataPtr = tryAllocate(heapPage, type);
+    if (dataPtr) return dataPtr;
 
-    void* dataPtr = tryAllocate(heapPage, type, true);
+//    lastPage->nextPage = createNewHeapPage(HEAP_ALLOC_HEADER_WORDS + type->requiredWords);
+    heapPage->nextPage = createNewHeapPage(HEAP_ALLOC_HEADER_WORDS + type->requiredWords);
+
+    dataPtr = tryAllocate(heapPage->nextPage, type, true);
+    if (!dataPtr) {
+        std::cerr << "Failed to allocate on a fresh heap page!" << std::endl;
+        exit(1);
+    }
     return dataPtr;
 }
 
@@ -259,11 +280,19 @@ void gcMarkThread(Thread *thread) {
 
 void gcSweepThread(Thread *thread) {
     auto *heapPage = thread->heapPage;
+    bool hasSetFreeAllocHint = false;
+
     while (heapPage) {
         auto *alloc = getNextAlloc(heapPage);
 
         while (alloc) {
-            if (alloc->colour != RUNTIME->gc->colour) alloc->type = nullptr;
+            if (alloc->colour != RUNTIME->gc->colour) {
+                alloc->type = nullptr;
+                if (!hasSetFreeAllocHint) {
+                    hasSetFreeAllocHint = true;
+                    heapPage->freeAllocHint = alloc;
+                }
+            }
             alloc = getNextAlloc(heapPage, alloc);
         }
 
@@ -320,13 +349,18 @@ void removeThread() {
 
 void gcThreadTask() {
     while (RUNTIME->mainThread->isActive) {
+        auto start = std::chrono::steady_clock::now();
         gc();
-        sleep(1);
+        std::cout << "GC took (μs)=" << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count() << std::endl;
+        timespec t1;
+        t1.tv_sec = 0;
+        t1.tv_nsec = 1000 * 1000 * 100; // 100ms
+        nanosleep(&t1, &t1);
     }
 }
 
 Thread* initRuntime(PointerPage *pointerPage) {
-    RUNTIME = new Runtime{
+    RUNTIME = new Runtime {
             .gc = new GC {
                     .gcMutex = std::mutex(),
                     .colour = Colour::Blue,

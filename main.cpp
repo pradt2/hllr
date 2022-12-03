@@ -25,7 +25,7 @@ void recursiveMethod(Thread* thread, PointerPage **nextPageField, unsigned int r
     pointers.ptr1->value = recursionLimit;
 
     if (recursionLimit > 0) {
-        recursiveMethod(thread, (PointerPage **) &pointers.page, recursionLimit - 1);
+        recursiveMethod(thread, &pointers.page.nextPage, recursionLimit - 1);
     }
 
     if (pointers.ptr1->value != recursionLimit) {
@@ -46,7 +46,8 @@ int main() {
     Thread* main = initRuntime(&pointers.page);
 
     for (int i = 0; i < 1<<13; i++) {
-        recursiveMethod(main, (PointerPage **) &pointers.page, 100);
+        recursiveMethod(main, &pointers.page.nextPage, 1000);
+//        gc();
     }
 
     shutdownRuntime();

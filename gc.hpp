@@ -48,6 +48,7 @@ struct Thread {
 struct HeapPage {
     HeapPage *nextPage;                     // pointer to the next heap page
     size_t usableWords;                     // size where allocations can be placed, i.e. excluding this header, as number of words
+    HeapAlloc* freeAllocHint;               // may point to a free allocation on the heap (nullptr otherwise)
     bool isSinglePurpose;                   // whether it has been allocated for one big object
 };
 
