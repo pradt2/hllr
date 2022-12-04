@@ -10,51 +10,40 @@ Type NodeType {
     .pointersCount = 1,
 };
 
-void recursiveMethod(Thread* thread, PointerPage **nextPageField, unsigned int recursionLimit = 100) {
-    struct {
-        PointerPage page = {
-                .nextPage = nullptr,
-                .pointerCount = 1,
-        };
-        Node *ptr1 = nullptr;
-    } pointers;
+void recursiveMethod(Thread* thread, size_t pointerStackOffset, unsigned int recursionLimit = 100) {
+    const size_t pointerSpaceDemand = 1;
 
-    *nextPageField = &pointers.page;
+    thread->pointerStack[pointerStackOffset + 0] = (uintptr_t) alloc(thread, &NodeType);
+    ((Node*) thread->pointerStack[pointerStackOffset + 0])->value = recursionLimit;
 
-    pointers.ptr1 = (Node*) alloc(thread, &NodeType);
-    pointers.ptr1->value = recursionLimit;
+    ((Node*) thread->pointerStack[pointerStackOffset + 0])->nextNode = (Node*) alloc(thread, &NodeType);
+    ((Node*) thread->pointerStack[pointerStackOffset + 0])->nextNode->value = recursionLimit;
 
-    pointers.ptr1->nextNode = (Node*) alloc(thread, &NodeType);
-    pointers.ptr1->nextNode->value = recursionLimit;
-
-    pointers.ptr1->nextNode->nextNode = (Node*) alloc(thread, &NodeType);
-    pointers.ptr1->nextNode->nextNode->value = recursionLimit;
+    ((Node*) thread->pointerStack[pointerStackOffset + 0])->nextNode->nextNode = (Node*) alloc(thread, &NodeType);
+    ((Node*) thread->pointerStack[pointerStackOffset + 0])->nextNode->nextNode->value = recursionLimit;
 
 
     if (recursionLimit > 0) {
-        recursiveMethod(thread, &pointers.page.nextPage, recursionLimit - 1);
+        recursiveMethod(thread, pointerStackOffset + pointerSpaceDemand, recursionLimit - 1);
     }
 
-    if (pointers.ptr1->value != recursionLimit || pointers.ptr1->nextNode->value != recursionLimit || pointers.ptr1->nextNode->nextNode->value != recursionLimit) {
-        printf("%ld %ld %ld\n",pointers.ptr1->value, pointers.ptr1->nextNode->value, pointers.ptr1->nextNode->nextNode->value);
+    if (((Node*) thread->pointerStack[pointerStackOffset + 0])->value != recursionLimit
+        || ((Node*) thread->pointerStack[pointerStackOffset + 0])->nextNode->value != recursionLimit
+        || ((Node*) thread->pointerStack[pointerStackOffset + 0])->nextNode->nextNode->value != recursionLimit) {
+        printf("%ld %ld %ld\n",((Node*) thread->pointerStack[pointerStackOffset + 0])->value, ((Node*) thread->pointerStack[pointerStackOffset + 0])->nextNode->value, ((Node*) thread->pointerStack[pointerStackOffset + 0])->nextNode->nextNode->value);
         exit(13);
     }
 
-    *nextPageField = nullptr;
+    thread->pointerStack[pointerStackOffset + 0] = 0;
 }
 
 int main() {
-    struct {
-        PointerPage page = {
-                .nextPage = nullptr,
-                .pointerCount = 0,
-        };
-    } pointers;
 
-    Thread* main = initRuntime(&pointers.page);
 
-    for (int i = 0; i < 1<<30; i++) {
-        recursiveMethod(main, &pointers.page.nextPage, 0);
+    Thread* main = initRuntime();
+
+    for (int i = 0; i < 1<<20; i++) {
+        recursiveMethod(main, 0, 100);
     }
 
     main->isActive = false;

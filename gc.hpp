@@ -40,7 +40,7 @@ struct GC {
 struct Thread {
     HeapPage *heapPage;                     // pointer to the first heap page
     HeapPage *lastPage;                     // pointer to the last heap page
-    PointerPage *pointerPage;               // pointer to the first pointer page
+    uintptr_t *pointerStack;                //
     Thread *nextThread;                     // pointer to the next thread
     bool isActive;                          // whether the thread is actually used (i.e. has a backing std::thread)
 };
@@ -66,6 +66,7 @@ const size_t HEAP_ALLOC_HEADER_WORDS = HEAP_ALLOC_HEADER_BYTES / sizeof(uintptr_
 
 struct PointerPage {
     PointerPage *nextPage;                  // pointer to the next page (lower down the stack)
+    size_t pageIdx;
     size_t pointerCount;                    // how many pointers does this page hold
 };
 
@@ -74,7 +75,7 @@ const size_t POINTER_PAGE_HEADER_WORDS = POINTER_PAGE_HEADER_BYTES / sizeof(uint
 
 extern Runtime *RUNTIME;
 
-Thread* initRuntime(PointerPage *pointerPage);
+Thread* initRuntime();
 void shutdownRuntime();
 
 void *alloc(Thread *thread, Type *type);

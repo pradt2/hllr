@@ -206,16 +206,12 @@ void markPtrRecursive(uintptr_t dataPtr, std::queue<uintptr_t> &queue, unsigned 
 void gcMarkThread(Thread *thread) {
     std::queue<uintptr_t> pointerQueue;
 
-    auto *pointerPage = thread->pointerPage;
-    while (pointerPage) {
-        size_t pointerCount = pointerPage->pointerCount;
-        auto firstPointer = (uintptr_t *) ((uintptr_t) pointerPage + POINTER_PAGE_HEADER_BYTES);
-        for (int i = 0; i < pointerCount; i++) {
-            uintptr_t dataPtr = *(firstPointer + i);
-            if (dataPtr == 0) continue;
-            markPtrRecursive(dataPtr, pointerQueue);
-        }
-        pointerPage = pointerPage->nextPage;
+    size_t pointerIdx = 0;
+
+    auto pointer = thread->pointerStack[pointerIdx];
+    while (pointer != 0) {
+        markPtrRecursive(pointer, pointerQueue);
+        pointer = thread->pointerStack[++pointerIdx];
     }
 
     while (!pointerQueue.empty()) {
@@ -325,15 +321,16 @@ void gcThreadTask() {
     while (RUNTIME->mainThread->isActive) {
         auto start = std::chrono::steady_clock::now();
         gc();
-        std::cout << "GC took (ms)=" << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count() << std::endl;
+        gc();
+//        std::cout << "GC took (ms)=" << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count() << std::endl;
         timespec t1;
         t1.tv_sec = 0;
-        t1.tv_nsec = 1000 * 1000 * 25; // 100ms
+        t1.tv_nsec = 1000 * 1000 * 1000; // 100ms
         nanosleep(&t1, &t1);
     }
 }
 
-Thread* initRuntime(PointerPage *pointerPage) {
+Thread* initRuntime() {
     RUNTIME = new Runtime {
             .gc = new GC {
                     .gcMutex = std::mutex(),
@@ -345,7 +342,7 @@ Thread* initRuntime(PointerPage *pointerPage) {
 
     RUNTIME->mainThread = new Thread {
             .heapPage = createNewHeapPage(),
-            .pointerPage = pointerPage,
+            .pointerStack = new uintptr_t[4096], // FIXME this should dynamically resize
             .nextThread = nullptr,
             .isActive = true,
     };
@@ -371,6 +368,7 @@ void shutdownRuntime() {
 
     delete RUNTIME->gc->gcThread;
     delete RUNTIME->gc;
+    delete[] RUNTIME->mainThread->pointerStack;
     delete RUNTIME->mainThread;
     delete RUNTIME;
 }
