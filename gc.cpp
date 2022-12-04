@@ -26,7 +26,6 @@ void* tryAllocate(HeapPage *heapPage, Type *type, bool allowSpecialPurpose = fal
     }
 
     auto *alloc = heapPage->freeAllocHint;
-    if (!alloc) alloc = getNextAlloc(heapPage);
 
     while (alloc) {
 
@@ -329,7 +328,7 @@ void gcThreadTask() {
         std::cout << "GC took (ms)=" << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count() << std::endl;
         timespec t1;
         t1.tv_sec = 0;
-        t1.tv_nsec = 1000 * 1000 * 50; // 100ms
+        t1.tv_nsec = 1000 * 1000 * 25; // 100ms
         nanosleep(&t1, &t1);
     }
 }

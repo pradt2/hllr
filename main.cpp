@@ -53,7 +53,7 @@ int main() {
 
     Thread* main = initRuntime(&pointers.page);
 
-    for (int i = 0; i < 1<<27; i++) {
+    for (int i = 0; i < 1<<30; i++) {
         recursiveMethod(main, &pointers.page.nextPage, 0);
     }
 
