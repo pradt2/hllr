@@ -140,10 +140,12 @@ HeapPage *createNewHeapPage(size_t minUsablePageWords = HEAP_PAGE_SIZE_WORDS) {
         isSinglePurpose = true;
     }
 
-    auto *newPage = (HeapPage *) new uintptr_t[HEAP_PAGE_HEADER_WORDS + pageUsableWords];
+    auto *newPage = (HeapPage *) new(std::nothrow) uintptr_t[HEAP_PAGE_HEADER_WORDS + pageUsableWords];
 
     if (!newPage) {
         // FIXME: OutOfMemoryError
+        printf("OOME!\n");
+        exit(15);
     }
 
     newPage->nextPage = nullptr;
@@ -159,81 +161,27 @@ HeapPage *createNewHeapPage(size_t minUsablePageWords = HEAP_PAGE_SIZE_WORDS) {
     return newPage;
 }
 
-bool isPageFree(HeapPage *page) {
-    auto *alloc = getNextAlloc(page);
-
-    while (alloc) {
-        if (alloc->type == nullptr) {
-            alloc = getNextAlloc(page, alloc);
-            continue;
-        }
-        else return false;
-    }
-
-    return true;
-}
-
-void freeHeapPages(Thread *thread) {
-    auto *lastPage = thread->heapPage;
-    auto *heapPage = thread->heapPage;
-
-    while (heapPage) {
-        if (!isPageFree(heapPage)) {
-            lastPage = heapPage;
-            heapPage = heapPage->nextPage;
-            continue;
-        }
-
-        // heap page free, we should delete it unless it's the only page
-        if (heapPage == thread->heapPage && heapPage->nextPage == nullptr) return;
-
-        // we can delete the heap page
-
-        // if the removed heap page is the first heap page, we should attach its next page to the thread
-        if (heapPage == thread->heapPage) {
-            thread->heapPage = heapPage->nextPage;
-        } else {
-            lastPage->nextPage = heapPage->nextPage;
-        }
-
-        auto *nextPage = heapPage->nextPage;
-        delete[] heapPage; // heap pages are allocated as uintptr_t[] so they require the delete[] operator
-        heapPage = nextPage;
-    }
-
-    thread->shouldFreeHeapPages = false;
-}
-
 void *alloc(Thread *thread, Type *type) {
-    if (thread->shouldFreeHeapPages) {
-        freeHeapPages(thread);
-    }
 
-//    auto *lastPage = thread->heapPage;
-    auto *heapPage = thread->heapPage;
-
-//    while (heapPage) {
-//        void* dataPtr = tryAllocate(heapPage, type);
-//        if (dataPtr) return dataPtr;
-//        lastPage = heapPage;
-//        heapPage = heapPage->nextPage;
-//    }
-
-    while (heapPage->nextPage) {
-        heapPage = heapPage->nextPage;
-    }
+    auto *heapPage = thread->lastPage;
 
     void* dataPtr = tryAllocate(heapPage, type);
     if (dataPtr) return dataPtr;
 
-//    lastPage->nextPage = createNewHeapPage(HEAP_ALLOC_HEADER_WORDS + type->requiredWords);
-    heapPage->nextPage = createNewHeapPage(HEAP_ALLOC_HEADER_WORDS + type->requiredWords);
-
-    dataPtr = tryAllocate(heapPage->nextPage, type, true);
+    auto *newPage = createNewHeapPage(HEAP_ALLOC_HEADER_WORDS + type->requiredWords);
+    dataPtr = tryAllocate(newPage, type, true);
     if (!dataPtr) {
         std::cerr << "Failed to allocate on a fresh heap page!" << std::endl;
         exit(1);
     }
+
+    // TODO does this have to happen atomically?
+    // probably no as long as no traversal through the page chain assumes that
+    // the traversal should carry on until `heapPage == thread->lastPage`
+    // (just check heapPage->nextPage == nullptr instead)
+    thread->lastPage = newPage;
+    heapPage->nextPage = newPage;
+
     return dataPtr;
 }
 
@@ -278,34 +226,61 @@ void gcMarkThread(Thread *thread) {
     }
 }
 
-void gcSweepThread(Thread *thread) {
-    auto *heapPage = thread->heapPage;
-    bool hasSetFreeAllocHint = false;
+void gcSweepThread(Thread *thread, HeapPage *endPage) {
+    auto *currentPage = thread->heapPage;
+    auto *previousPage = (HeapPage*) nullptr;
 
-    while (heapPage) {
-        auto *alloc = getNextAlloc(heapPage);
+    while ((currentPage != nullptr) & (currentPage != endPage)) {
+        auto *alloc = getNextAlloc(currentPage);
+
+        bool pageMustLive = false;
 
         while (alloc) {
-            if (alloc->colour != RUNTIME->gc->colour) {
+            if (alloc->type == nullptr) {
+                // allocation is free, so we don't care about the colour
+            } else if (alloc->colour != RUNTIME->gc->colour) {
+                // allocation hasn't been marked
+                // which means it has no reason to live, thus we can free it
                 alloc->type = nullptr;
-                if (!hasSetFreeAllocHint) {
-                    hasSetFreeAllocHint = true;
-                    heapPage->freeAllocHint = alloc;
-                }
+            } else {
+                // allocation isn't free, and it is marked by the mark algorithm,
+                // so it must live, and thus so must the entire page
+                pageMustLive = true;
             }
-            alloc = getNextAlloc(heapPage, alloc);
+            alloc = getNextAlloc(currentPage, alloc);
         }
 
-        heapPage = heapPage->nextPage;
+        if (pageMustLive) {
+            previousPage = currentPage;
+            currentPage = currentPage->nextPage;
+            continue;
+        }
+
+        // from here on we know we want to get rid of the page
+        // the next page should be connected to the chain in place of the to-be-deleted page
+        auto *nextPage = currentPage->nextPage;
+
+        if (currentPage == thread->heapPage) {
+            // we are about to remove the first heap page
+            // we can only do it as long as there are more pages
+            if (!nextPage) break;
+
+            thread->heapPage = nextPage;
+            previousPage = nullptr;
+        } else {
+            // ordinary situation, lastPage is just another page in the chain
+            previousPage->nextPage = nextPage;
+        }
+
+        delete[] currentPage; // pages are allocated as uintptr_t[] so they need to be deallocated as arrays
+
+        currentPage = nextPage;
     }
-
-    printHeapSummary(RUNTIME->mainThread);
-
-    thread->shouldFreeHeapPages = true;
 }
 
 void gc() {
     RUNTIME->gc->gcMutex.lock();
+
     RUNTIME->gc->colour = RUNTIME->gc->colour == Colour::Blue ? Colour::Green : Colour::Blue;
 
     std::vector<std::thread *> workerThreads;
@@ -327,7 +302,7 @@ void gc() {
 
     thread = RUNTIME->mainThread;
     while (thread) {
-        workerThreads.push_back(new std::thread(gcSweepThread, thread));
+        workerThreads.push_back(new std::thread(gcSweepThread, thread, thread->lastPage));
         thread = thread->nextThread;
     }
 
@@ -351,10 +326,10 @@ void gcThreadTask() {
     while (RUNTIME->mainThread->isActive) {
         auto start = std::chrono::steady_clock::now();
         gc();
-        std::cout << "GC took (μs)=" << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count() << std::endl;
+        std::cout << "GC took (ms)=" << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count() << std::endl;
         timespec t1;
         t1.tv_sec = 0;
-        t1.tv_nsec = 1000 * 1000 * 100; // 100ms
+        t1.tv_nsec = 1000 * 1000 * 50; // 100ms
         nanosleep(&t1, &t1);
     }
 }
@@ -373,10 +348,10 @@ Thread* initRuntime(PointerPage *pointerPage) {
             .heapPage = createNewHeapPage(),
             .pointerPage = pointerPage,
             .nextThread = nullptr,
-            .shouldFreeHeapPages = false,
             .isActive = true,
     };
 
+    RUNTIME->mainThread->lastPage = RUNTIME->mainThread->heapPage;
     RUNTIME->gc->gcThread = new std::thread(gcThreadTask);
 
     return RUNTIME->mainThread;

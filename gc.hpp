@@ -6,7 +6,7 @@
 #include <mutex>
 #include <thread>
 
-const size_t HEAP_PAGE_SIZE_WORDS = 12800;
+const size_t HEAP_PAGE_SIZE_WORDS = 1280000;
 
 enum struct Colour: char {
     Green = 0, Blue = 1,
@@ -39,9 +39,9 @@ struct GC {
 
 struct Thread {
     HeapPage *heapPage;                     // pointer to the first heap page
+    HeapPage *lastPage;                     // pointer to the last heap page
     PointerPage *pointerPage;               // pointer to the first pointer page
     Thread *nextThread;                     // pointer to the next thread
-    bool shouldFreeHeapPages;               // whether the thread should do the free routine before allocating
     bool isActive;                          // whether the thread is actually used (i.e. has a backing std::thread)
 };
 
