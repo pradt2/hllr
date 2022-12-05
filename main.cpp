@@ -1,3 +1,4 @@
+#include <iostream>
 #include "gc.hpp"
 
 struct Node {
@@ -42,9 +43,15 @@ int main() {
 
     Thread* main = initRuntime();
 
+    auto start = std::chrono::steady_clock::now();
     for (int i = 0; i < 1<<20; i++) {
         recursiveMethod(main, 0, 100);
     }
+
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+
+
+    std::cout << "Allocs per sec" << ((100L * 3 * (1 << 20)) / ms * 1000) / 1000000.0 << std::endl;
 
     main->isActive = false;
 
