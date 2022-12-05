@@ -206,12 +206,11 @@ void markPtrRecursive(uintptr_t dataPtr, std::queue<uintptr_t> &queue, unsigned 
 void gcMarkThread(Thread *thread) {
     std::queue<uintptr_t> pointerQueue;
 
-    size_t pointerIdx = 0;
-
-    auto pointer = thread->pointerStack[pointerIdx];
-    while (pointer != 0) {
+    for (int i = 0; i < 4096; i++) {
+        auto pointer = thread->pointerStack[i];
+//        if (pointer == 0) break; // FIXME this is incorrect
+        if (pointer == 0) continue;
         markPtrRecursive(pointer, pointerQueue);
-        pointer = thread->pointerStack[++pointerIdx];
     }
 
     while (!pointerQueue.empty()) {
@@ -342,7 +341,7 @@ Thread* initRuntime() {
 
     RUNTIME->mainThread = new Thread {
             .heapPage = createNewHeapPage(),
-            .pointerStack = new uintptr_t[4096], // FIXME this should dynamically resize
+            .pointerStack =  {0}, // new uintptr_t[4096], // FIXME this should dynamically resize
             .nextThread = nullptr,
             .isActive = true,
     };
@@ -368,7 +367,7 @@ void shutdownRuntime() {
 
     delete RUNTIME->gc->gcThread;
     delete RUNTIME->gc;
-    delete[] RUNTIME->mainThread->pointerStack;
+//    delete[] RUNTIME->mainThread->pointerStack;
     delete RUNTIME->mainThread;
     delete RUNTIME;
 }

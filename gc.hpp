@@ -40,7 +40,7 @@ struct GC {
 struct Thread {
     HeapPage *heapPage;                     // pointer to the first heap page
     HeapPage *lastPage;                     // pointer to the last heap page
-    uintptr_t *pointerStack;                //
+    uintptr_t pointerStack[4096];                //
     Thread *nextThread;                     // pointer to the next thread
     bool isActive;                          // whether the thread is actually used (i.e. has a backing std::thread)
 };
