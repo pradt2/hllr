@@ -43,7 +43,7 @@ int main() {
     Thread* main = initRuntime();
 
     auto start = std::chrono::steady_clock::now();
-    for (int i = 0; i < 1<<22; i++) {
+    for (int i = 0; i < 1<<24; i++) {
         recursiveMethod(main, 0, 100);
     }
 
@@ -66,5 +66,30 @@ int main() {
 //    }
 
 //    shutdownRuntime();
+    return 0;
+}
+
+struct Ex1 : public std::exception {};
+
+struct Ex2 : public Ex1 {};
+
+struct Ex3 : public Ex1 {};
+
+void throw1() {
+    throw Ex3();
+}
+
+void throw2() {
+    throw Ex2();
+}
+
+int mainX() {
+    try {
+        throw 1;
+    } catch (int &e) {
+        printf("Caught super exception %d!\n", e);
+    } catch (Ex3 &e) {
+        printf("Caught super exception 3!\n");
+    }
     return 0;
 }

@@ -1,5 +1,3 @@
-package com.sage.ordermanagement;
-
 import java.time.Duration;
 import java.time.Instant;
 
@@ -26,7 +24,7 @@ public class AllocBench {
     public static void main(String... args) {
         Instant instant = Instant.now();
 
-        for (int i = 0; i < 1 << 22; i++) {
+        for (int i = 0; i < 1 << 24; i++) {
             recursiveFunction(100);
         }
 

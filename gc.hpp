@@ -6,7 +6,7 @@
 #include <mutex>
 #include <thread>
 
-const size_t HEAP_PAGE_SIZE_WORDS = 12800;
+const size_t HEAP_PAGE_SIZE_WORDS = 128000;
 
 enum struct Colour: char {
     Green = 0, Blue = 1,
