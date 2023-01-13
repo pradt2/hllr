@@ -54,6 +54,7 @@ void* tryAllocate(HeapPage *heapPage, Type *type, bool allowSpecialPurpose = fal
                 auto splitAlloc = (HeapAlloc*) ((uintptr_t) alloc + HEAP_ALLOC_HEADER_BYTES + alloc->usableWords * sizeof(uintptr_t));
                 splitAlloc->usableWords = oldUsableWords - HEAP_ALLOC_HEADER_WORDS - requiredAllocWords;
                 splitAlloc->type = nullptr;
+                splitAlloc->parentPage = alloc->parentPage;
                 splitAlloc->colour = RUNTIME->gc->colour;
 
                 heapPage->freeAllocHint = splitAlloc;
@@ -98,6 +99,7 @@ void* tryAllocate(HeapPage *heapPage, Type *type, bool allowSpecialPurpose = fal
                 auto splitAlloc = (HeapAlloc*) ((uintptr_t) alloc + HEAP_ALLOC_HEADER_BYTES + alloc->usableWords * sizeof(uintptr_t));
                 splitAlloc->usableWords = cumulativeUsableWords - requiredAllocWords;
                 splitAlloc->type = nullptr;
+                splitAlloc->parentPage = alloc->parentPage;
                 splitAlloc->colour = RUNTIME->gc->colour;
 
                 heapPage->freeAllocHint = splitAlloc;
@@ -130,6 +132,7 @@ void* tryAllocate(HeapPage *heapPage, Type *type, bool allowSpecialPurpose = fal
 }
 
 HeapPage *createNewHeapPage(size_t minUsablePageWords = HEAP_PAGE_SIZE_WORDS) {
+//    std::cout << "New heap page!" << std::endl;
     // not enough space in any of the pages
     // create new page
     auto pageUsableWords = HEAP_PAGE_SIZE_WORDS;
@@ -154,6 +157,7 @@ HeapPage *createNewHeapPage(size_t minUsablePageWords = HEAP_PAGE_SIZE_WORDS) {
     auto *newPageAlloc = getNextAlloc(newPage);
     newPageAlloc->usableWords = pageUsableWords - HEAP_ALLOC_HEADER_WORDS;
     newPageAlloc->type = nullptr;
+    newPageAlloc->parentPage = newPage;
     newPageAlloc->colour = RUNTIME->gc->colour;
 
     newPage->freeAllocHint = newPageAlloc;
@@ -191,7 +195,9 @@ void markPtrRecursive(uintptr_t dataPtr, std::queue<uintptr_t> &queue, unsigned 
 
     HeapAlloc *alloc = (HeapAlloc*) (dataPtr - HEAP_ALLOC_HEADER_BYTES);
     if (alloc->colour == RUNTIME->gc->colour) return;
+
     alloc->colour = RUNTIME->gc->colour;
+    alloc->parentPage->colour = alloc->colour;
 
     for (int i = 0; i < alloc->type->pointersCount; i++) {
         auto fieldDataPtr = *((uintptr_t *) dataPtr + i);
@@ -224,25 +230,13 @@ void gcSweepThread(ThreadRuntime *thread, HeapPage *endPage) {
     auto *currentPage = thread->allocator.firstPage;
     auto *previousPage = (HeapPage*) nullptr;
 
+    auto currentColour = RUNTIME->gc->colour;
+
+    int freedPages = 0;
+
     while ((currentPage != nullptr) & (currentPage != endPage)) {
-        auto *alloc = getNextAlloc(currentPage);
 
-        bool pageMustLive = false;
-
-        while (alloc) {
-            if (alloc->type == nullptr) {
-                // allocation is free, so we don't care about the colour
-            } else if (alloc->colour != RUNTIME->gc->colour) {
-                // allocation hasn't been marked
-                // which means it has no reason to live, thus we can free it
-                alloc->type = nullptr;
-            } else {
-                // allocation isn't free, and it is marked by the mark algorithm,
-                // so it must live, and thus so must the entire page
-                pageMustLive = true;
-            }
-            alloc = getNextAlloc(currentPage, alloc);
-        }
+        bool pageMustLive = currentPage->colour == currentColour;
 
         if (pageMustLive) {
             previousPage = currentPage;
@@ -267,6 +261,10 @@ void gcSweepThread(ThreadRuntime *thread, HeapPage *endPage) {
         }
 
         delete[] currentPage; // pages are allocated as uintptr_t[] so they need to be deallocated as arrays
+
+//        std::cout << "Removed heap page!" << std::endl;
+
+        freedPages += 1;
 
         currentPage = nextPage;
     }
@@ -293,7 +291,7 @@ void gcST() {
 
     RUNTIME->gc->gcMutex.unlock();
 
-    std::cout << "GC took (ms)=" << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count() << std::endl;
+//    std::cout << "GC took (ms)=" << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count() << std::endl;
 }
 
 void gc() {
@@ -342,8 +340,8 @@ void removeThread() {
 void gcThreadTask() {
     while (RUNTIME->mainThread->isActive) {
         auto start = std::chrono::steady_clock::now();
-        gc();
-        std::cout << "GC took (ms)=" << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count() << std::endl;
+        gcST();
+//        std::cout << "GC took (ms)=" << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count() << std::endl;
         timespec t1;
         t1.tv_sec = 0;
         t1.tv_nsec = 1000 * 1000 * 100; // always keep it less than 1s, otherwise it does not sleep

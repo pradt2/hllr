@@ -82,6 +82,7 @@ struct HeapPage {
     size_t usableWords;                     // size where allocations can be placed, i.e. excluding this header, as number of words
     HeapAlloc* freeAllocHint;               // may point to a free allocation on the heap (nullptr otherwise)
     bool isSinglePurpose;                   // whether it has been allocated for one big object
+    Colour colour;                          // heap page colour for GC purposes
 };
 
 const size_t HEAP_PAGE_HEADER_BYTES = sizeof(HeapPage);
@@ -90,6 +91,7 @@ const size_t HEAP_PAGE_HEADER_WORDS = HEAP_PAGE_HEADER_BYTES / sizeof(uintptr_t)
 struct HeapAlloc {
     Type *type;                             // type of object currently held, NULL means the allocation is free
     size_t usableWords;                     // size where object data can be placed, as number of words
+    HeapPage *parentPage;                   // the heap page where this allocation resides
     Colour colour;                          // stain colour of the allocation, used by the GC
 };
 

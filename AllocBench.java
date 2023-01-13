@@ -4,7 +4,12 @@ import java.time.Instant;
 public class AllocBench {
 
     public static class Node {
+        static int total;
         int value;
+
+        public Node() {
+            Node.total++;
+        }
     }
 
     private static Node recursiveFunction(int recursionLevel) {
@@ -21,13 +26,14 @@ public class AllocBench {
         return node.hashCode() < node1.hashCode() ? node : node1;
     }
 
-    public static void main(String... args) {
+    public static void main2(String... args) {
         Instant instant = Instant.now();
 
-        long iters = 1 << 24;
+        long iters = 1 << 21;
+        int recursion = 1000;
 
         for (int i = 0; i < iters; i++) {
-            recursiveFunction(100);
+            recursiveFunction(recursion);
         }
 
         Instant now = Instant.now();
@@ -36,6 +42,53 @@ public class AllocBench {
 
         System.out.println(ms);
 
-        System.out.println("Allocs per sec (in millions) " + ((100L * iters) / ms * 1000) / 1000000.0);
+        System.out.println("Allocs per sec (in millions) " + ((recursion * iters) / ms * 1000) / 1000000.0);
+    }
+
+    private static int size = 1024;
+    public static Node[] nodes = new Node[size];
+
+    public static void printLowest() {
+        try {
+            Thread.sleep(4000);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+
+        Node lowest = null;
+        for (Node node : nodes) {
+            if (lowest == null) {
+                lowest = node;
+                continue;
+            }
+            if (lowest.hashCode() > node.hashCode()) lowest = node;
+        }
+        System.out.println(lowest);
+    }
+
+    public static void main(String... args) throws Exception {
+
+//         new Thread(AllocBench::printLowest).start();
+
+        Instant instant = Instant.now();
+
+        long iters = 1024 * 100;
+        iters *= Long.parseLong(args[0]);
+
+        Node lowest = new Node();
+
+        for (long iter = 0; iter < iters; iter++) {
+            for (int i = 0; i < size; i++) {
+                nodes[i] = new Node();
+            }
+        }
+
+        Instant now = Instant.now();
+
+        long ms = Duration.between(instant, now).toMillis();
+
+        System.out.println(ms);
+
+        System.out.println("Allocs per sec (in millions) " + ((size * iters) / ms * 1000) / 1000000.0);
     }
 }
