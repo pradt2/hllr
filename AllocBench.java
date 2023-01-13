@@ -24,11 +24,18 @@ public class AllocBench {
     public static void main(String... args) {
         Instant instant = Instant.now();
 
-        for (int i = 0; i < 1 << 24; i++) {
+        long iters = 1 << 24;
+
+        for (int i = 0; i < iters; i++) {
             recursiveFunction(100);
         }
 
         Instant now = Instant.now();
-        System.out.println(Duration.between(instant, now).toMillis());
+
+        long ms = Duration.between(instant, now).toMillis();
+
+        System.out.println(ms);
+
+        System.out.println("Allocs per sec (in millions) " + ((100L * iters) / ms * 1000) / 1000000.0);
     }
 }
