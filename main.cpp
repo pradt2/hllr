@@ -43,8 +43,8 @@ Node* recursiveMethod(ThreadRuntime* thread, unsigned int recursionLimit = 100) 
 int main() {
     ThreadRuntime* main = initRuntime();
 
-    const auto iters = 1 << 27;
-    const auto recursion = 10L;
+    const auto iters = 1 << 24;
+    const auto recursion = 100L;
 
     auto start = std::chrono::steady_clock::now();
     for (int i = 0; i < iters; i++) {
