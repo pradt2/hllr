@@ -43,18 +43,19 @@ Node* recursiveMethod(ThreadRuntime* thread, unsigned int recursionLimit = 100) 
 int main() {
     ThreadRuntime* main = initRuntime();
 
-    const auto iters = 1 << 24;
+    const auto iters = 1 << 27;
+    const auto recursion = 10L;
 
     auto start = std::chrono::steady_clock::now();
     for (int i = 0; i < iters; i++) {
-        recursiveMethod(main, 100);
+        recursiveMethod(main, recursion);
     }
 
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
 
     std::cout << ms << std::endl;
 
-    std::cout << "Allocs per sec (in millions) " << ((100L * iters) / ms * 1000) / 1000000.0 << std::endl;
+    std::cout << "Allocs per sec (in millions) " << ((recursion * iters) / ms * 1000) / 1000000.0 << std::endl;
 
     main->isActive = false;
 
