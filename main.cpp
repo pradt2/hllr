@@ -11,11 +11,12 @@ Type NodeType {
     .pointersCount = 0,
 };
 
-Node* recursiveMethod(Thread* thread, size_t pointerStackOffset, unsigned int recursionLimit = 100) {
-    const size_t pointerSpaceDemand = 2;
+Node* recursiveMethod(ThreadRuntime* thread, unsigned int recursionLimit = 100) {
+    auto raii = thread->allocator.getRAII();
+    Node *node, *node1;
 
-    thread->pointerStack[pointerStackOffset + 0] = (uintptr_t) alloc(thread, &NodeType);
-    ((Node*) thread->pointerStack[pointerStackOffset + 0])->value = recursionLimit;
+    node = (Node*) thread->allocator.alloc(&NodeType);
+    node->value = recursionLimit;
 
 //    ((Node*) thread->pointerStack[pointerStackOffset + 0])->nextNode = (Node*) alloc(thread, &NodeType);
 //    ((Node*) thread->pointerStack[pointerStackOffset + 0])->nextNode->value = recursionLimit;
@@ -24,8 +25,8 @@ Node* recursiveMethod(Thread* thread, size_t pointerStackOffset, unsigned int re
 //    ((Node*) thread->pointerStack[pointerStackOffset + 0])->nextNode->nextNode->value = recursionLimit;
 
     if (recursionLimit > 0) {
-        thread->pointerStack[pointerStackOffset + 1] = (uintptr_t) recursiveMethod(thread, pointerStackOffset + pointerSpaceDemand, recursionLimit - 1);
-    } else return (Node*) thread->pointerStack[pointerStackOffset + 0];
+        node1 = recursiveMethod(thread, recursionLimit - 1);
+    } else return node;
 
 //    if (((Node*) thread->pointerStack[pointerStackOffset + 0])->value != recursionLimit
 //        || ((Node*) thread->pointerStack[pointerStackOffset + 0])->nextNode->value != recursionLimit
@@ -34,24 +35,26 @@ Node* recursiveMethod(Thread* thread, size_t pointerStackOffset, unsigned int re
 //        exit(13);
 //    }
 
-    if (thread->pointerStack[pointerStackOffset + 0] < thread->pointerStack[pointerStackOffset + 1]) {
-        return (Node*) thread->pointerStack[pointerStackOffset + 0];
-    } else return (Node*) thread->pointerStack[pointerStackOffset + 1];
+    if (node < node1) {
+        return node;
+    } else return node1;
 }
 
 int main() {
-    Thread* main = initRuntime();
+    ThreadRuntime* main = initRuntime();
+
+    const auto iters = 1 << 24;
 
     auto start = std::chrono::steady_clock::now();
-    for (int i = 0; i < 1<<24; i++) {
-        recursiveMethod(main, 0, 100);
+    for (int i = 0; i < iters; i++) {
+        recursiveMethod(main, 100);
     }
 
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
 
     std::cout << ms << std::endl;
 
-    std::cout << "Allocs per sec (in millions) " << ((100L * (1 << 22)) / ms * 1000) / 1000000.0 << std::endl;
+    std::cout << "Allocs per sec (in millions) " << ((100L * iters) / ms * 1000) / 1000000.0 << std::endl;
 
     main->isActive = false;
 

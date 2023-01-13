@@ -160,26 +160,28 @@ HeapPage *createNewHeapPage(size_t minUsablePageWords = HEAP_PAGE_SIZE_WORDS) {
     return newPage;
 }
 
-void *alloc(Thread *thread, Type *type) {
+void *Allocator::alloc(Type *type) {
+    void* dataPtr = tryAllocate(lastPage, type);
 
-    auto *heapPage = thread->lastPage;
+    if (!dataPtr) [[unlikely]] {
+        auto *newPage = createNewHeapPage(HEAP_ALLOC_HEADER_WORDS + type->requiredWords);
+        dataPtr = tryAllocate(newPage, type, true);
 
-    void* dataPtr = tryAllocate(heapPage, type);
-    if (dataPtr) return dataPtr;
+        if (!dataPtr) {
+            std::cerr << "Failed to allocate on a fresh heap page!" << std::endl;
+            exit(1);
+        }
 
-    auto *newPage = createNewHeapPage(HEAP_ALLOC_HEADER_WORDS + type->requiredWords);
-    dataPtr = tryAllocate(newPage, type, true);
-    if (!dataPtr) {
-        std::cerr << "Failed to allocate on a fresh heap page!" << std::endl;
-        exit(1);
+        // TODO does this have to happen atomically?
+        // probably no as long as no traversal through the page chain assumes that
+        // the traversal should carry on until `heapPage == thread->lastPage`
+        // (just check heapPage->nextPage == nullptr instead)
+        lastPage->nextPage = newPage;
+        lastPage = newPage;
     }
 
-    // TODO does this have to happen atomically?
-    // probably no as long as no traversal through the page chain assumes that
-    // the traversal should carry on until `heapPage == thread->lastPage`
-    // (just check heapPage->nextPage == nullptr instead)
-    thread->lastPage = newPage;
-    heapPage->nextPage = newPage;
+    this->pointerStack[this->pointerIdx] = (uintptr_t) dataPtr;
+    this->pointerIdx += 1;
 
     return dataPtr;
 }
@@ -203,11 +205,10 @@ void markPtrRecursive(uintptr_t dataPtr, std::queue<uintptr_t> &queue, unsigned 
     }
 }
 
-void gcMarkThread(Thread *thread) {
+void gcMarkThread(ThreadRuntime *thread) {
     std::queue<uintptr_t> pointerQueue;
 
-    for (int i = 0; i < 4096; i++) {
-        auto pointer = thread->pointerStack[i];
+    for (auto &pointer : thread->allocator.pointerStack) {
         if (pointer == 0) continue;
         markPtrRecursive(pointer, pointerQueue);
     }
@@ -219,8 +220,8 @@ void gcMarkThread(Thread *thread) {
     }
 }
 
-void gcSweepThread(Thread *thread, HeapPage *endPage) {
-    auto *currentPage = thread->heapPage;
+void gcSweepThread(ThreadRuntime *thread, HeapPage *endPage) {
+    auto *currentPage = thread->allocator.firstPage;
     auto *previousPage = (HeapPage*) nullptr;
 
     while ((currentPage != nullptr) & (currentPage != endPage)) {
@@ -253,12 +254,12 @@ void gcSweepThread(Thread *thread, HeapPage *endPage) {
         // the next page should be connected to the chain in place of the to-be-deleted page
         auto *nextPage = currentPage->nextPage;
 
-        if (currentPage == thread->heapPage) {
+        if (currentPage == thread->allocator.firstPage) {
             // we are about to remove the first heap page
             // we can only do it as long as there are more pages
             if (!nextPage) break;
 
-            thread->heapPage = nextPage;
+            thread->allocator.firstPage = nextPage;
             previousPage = nullptr;
         } else {
             // ordinary situation, lastPage is just another page in the chain
@@ -269,6 +270,30 @@ void gcSweepThread(Thread *thread, HeapPage *endPage) {
 
         currentPage = nextPage;
     }
+}
+
+void gcST() {
+    RUNTIME->gc->gcMutex.lock();
+
+    RUNTIME->gc->colour = RUNTIME->gc->colour == Colour::Blue ? Colour::Green : Colour::Blue;
+
+    auto start = std::chrono::steady_clock::now();
+
+    auto *thread = RUNTIME->mainThread;
+    while (thread) {
+        gcMarkThread(thread);
+        thread = thread->nextThread;
+    }
+
+    thread = RUNTIME->mainThread;
+    while (thread) {
+        gcSweepThread(thread, thread->allocator.lastPage);
+        thread = thread->nextThread;
+    }
+
+    RUNTIME->gc->gcMutex.unlock();
+
+    std::cout << "GC took (ms)=" << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count() << std::endl;
 }
 
 void gc() {
@@ -282,7 +307,6 @@ void gc() {
     auto *thread = RUNTIME->mainThread;
     while (thread) {
         workerThreads.push_back(new std::thread(gcMarkThread, thread));
-        gcMarkThread(thread);
         thread = thread->nextThread;
     }
 
@@ -295,7 +319,7 @@ void gc() {
 
     thread = RUNTIME->mainThread;
     while (thread) {
-        workerThreads.push_back(new std::thread(gcSweepThread, thread, thread->lastPage));
+        workerThreads.push_back(new std::thread(gcSweepThread, thread, thread->allocator.lastPage));
         thread = thread->nextThread;
     }
 
@@ -319,7 +343,7 @@ void gcThreadTask() {
     while (RUNTIME->mainThread->isActive) {
         auto start = std::chrono::steady_clock::now();
         gc();
-//        std::cout << "GC took (ms)=" << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count() << std::endl;
+        std::cout << "GC took (ms)=" << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count() << std::endl;
         timespec t1;
         t1.tv_sec = 0;
         t1.tv_nsec = 1000 * 1000 * 100; // always keep it less than 1s, otherwise it does not sleep
@@ -327,7 +351,7 @@ void gcThreadTask() {
     }
 }
 
-Thread* initRuntime() {
+ThreadRuntime* initRuntime() {
     RUNTIME = new Runtime {
             .gc = new GC {
                     .gcMutex = std::mutex(),
@@ -337,24 +361,28 @@ Thread* initRuntime() {
             .mainThread = nullptr,
     };
 
-    RUNTIME->mainThread = new Thread {
-            .heapPage = createNewHeapPage(),
-            .pointerStack =  {0}, // new uintptr_t[4096], // FIXME this should dynamically resize
+    RUNTIME->mainThread = new ThreadRuntime{
             .nextThread = nullptr,
+            .allocator = Allocator(),
             .isActive = true,
     };
 
-    RUNTIME->mainThread->lastPage = RUNTIME->mainThread->heapPage;
+    RUNTIME->mainThread->allocator.lastPage = RUNTIME->mainThread->allocator.firstPage;
     RUNTIME->gc->gcThread = new std::thread(gcThreadTask);
 
     return RUNTIME->mainThread;
+}
+
+Allocator::Allocator() {
+    this->firstPage = createNewHeapPage();
+    this->lastPage = this->firstPage;
 }
 
 void shutdownRuntime() {
     RUNTIME->mainThread->isActive = false;
     RUNTIME->gc->gcThread->join();
 
-    auto *heapPage = RUNTIME->mainThread->heapPage;
+    auto *heapPage = RUNTIME->mainThread->allocator.firstPage;
 
     while (heapPage) {
         // FIXME this is wrong as other threads might store data here too
@@ -365,14 +393,13 @@ void shutdownRuntime() {
 
     delete RUNTIME->gc->gcThread;
     delete RUNTIME->gc;
-//    delete[] RUNTIME->mainThread->pointerStack;
     delete RUNTIME->mainThread;
     delete RUNTIME;
 }
 
-void printHeap(Thread *thread) {
+void printHeap(ThreadRuntime *thread) {
     unsigned int pageCount = 0;
-    auto *page = thread->heapPage;
+    auto *page = thread->allocator.firstPage;
 
     while (page) {
         std::cout << "Heap page " << pageCount << std::endl;
@@ -399,8 +426,8 @@ void printHeap(Thread *thread) {
     }
 }
 
-void printHeapSummary(Thread *thread) {
-    auto *page = thread->heapPage;
+void printHeapSummary(ThreadRuntime *thread) {
+    auto *page = thread->allocator.firstPage;
 
     unsigned int pageCount = 0;
     size_t allocationCount = 0;

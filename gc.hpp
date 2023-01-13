@@ -15,10 +15,10 @@ enum struct Colour: char {
 struct Type;                                // characterises every object type
 struct Runtime;
 struct GC;
-struct Thread;
+struct Allocator;
+struct ThreadRuntime;
 struct HeapPage;
 struct HeapAlloc;
-struct PointerPage;
 
 struct Type {
     size_t requiredWords;                   // how many words are needed to allocate
@@ -28,7 +28,7 @@ struct Type {
 struct Runtime {
     GC *gc;                                 // garbage collector structure
     std::mutex threadMutex;                 // mutex to coordinate adding/removing threads
-    Thread *mainThread;                     // pointer to the main thread
+    ThreadRuntime *mainThread;                     // pointer to the main thread
 };
 
 struct GC {
@@ -37,11 +37,43 @@ struct GC {
     volatile Colour colour;                 // colour to stain new allocations with
 };
 
-struct Thread {
-    HeapPage *heapPage;                     // pointer to the first heap page
+struct Allocator {
+    HeapPage *firstPage;                     // pointer to the first heap page
     HeapPage *lastPage;                     // pointer to the last heap page
-    uintptr_t pointerStack[4096];                //
-    Thread *nextThread;                     // pointer to the next thread
+    uintptr_t pointerIdx = 0;               // keeps track of the current position in the pointer stack
+    uintptr_t pointerStack[4096] = {0};     // keeps track of stack GC roots
+
+public:
+
+    Allocator(const Allocator&) = delete;
+    explicit Allocator();
+
+    class ReserveStackSpaceRAII {
+    private:
+        Allocator *allocator;
+        uintptr_t oldIdx;
+
+    public:
+        ReserveStackSpaceRAII(Allocator *alloc) {
+            this->allocator = alloc;
+            this->oldIdx = alloc->pointerIdx;
+        }
+
+        ~ReserveStackSpaceRAII() {
+            this->allocator->pointerIdx = this->oldIdx;
+        }
+    };
+
+    inline ReserveStackSpaceRAII getRAII() {
+        return {this};
+    }
+
+    void *alloc(Type *type);
+};
+
+struct ThreadRuntime {
+    ThreadRuntime *nextThread;              // pointer to the next thread
+    Allocator allocator;                    // handles on-heap allocations
     bool isActive;                          // whether the thread is actually used (i.e. has a backing std::thread)
 };
 
@@ -64,26 +96,17 @@ struct HeapAlloc {
 const size_t HEAP_ALLOC_HEADER_BYTES = sizeof(HeapAlloc);
 const size_t HEAP_ALLOC_HEADER_WORDS = HEAP_ALLOC_HEADER_BYTES / sizeof(uintptr_t);
 
-struct PointerPage {
-    PointerPage *nextPage;                  // pointer to the next page (lower down the stack)
-    size_t pageIdx;
-    size_t pointerCount;                    // how many pointers does this page hold
-};
-
-const size_t POINTER_PAGE_HEADER_BYTES = sizeof(PointerPage);
-const size_t POINTER_PAGE_HEADER_WORDS = POINTER_PAGE_HEADER_BYTES / sizeof(uintptr_t);
-
 extern Runtime *RUNTIME;
 
-Thread* initRuntime();
+ThreadRuntime* initRuntime();
 void shutdownRuntime();
 
-void *alloc(Thread *thread, Type *type);
+void gcST();
 void gc();
 void addThread();
 void removeThread();
 
-void printHeap(Thread *thread);
-void printHeapSummary(Thread *thread);
+void printHeap(ThreadRuntime *thread);
+void printHeapSummary(ThreadRuntime *thread);
 
 #endif //GC_GC_HPP
