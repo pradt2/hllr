@@ -44,8 +44,6 @@ struct Allocator {
     uintptr_t pointerStack[4096] = {0};     // keeps track of stack GC roots
 
 public:
-
-    Allocator(const Allocator&) = delete;
     explicit Allocator();
 
     class ReserveStackSpaceRAII {
@@ -69,6 +67,8 @@ public:
     }
 
     void *alloc(Type *type);
+
+    void dealloc(void *ptr);
 };
 
 struct ThreadRuntime {
@@ -80,7 +80,8 @@ struct ThreadRuntime {
 struct HeapPage {
     HeapPage *nextPage;                     // pointer to the next heap page
     size_t usableWords;                     // size where allocations can be placed, i.e. excluding this header, as number of words
-    HeapAlloc* freeAllocHint;               // may point to a free allocation on the heap (nullptr otherwise)
+    HeapAlloc* middleFreeAlloc;             // may point to a free allocation somewhere in the middle of the page
+    HeapAlloc* lastFreeAlloc;               // may point to a free allocation on the heap (nullptr otherwise)
     bool isSinglePurpose;                   // whether it has been allocated for one big object
     Colour colour;                          // heap page colour for GC purposes
 };

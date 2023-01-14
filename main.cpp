@@ -3,7 +3,7 @@
 
 struct Node {
 //    Node *nextNode;
-    long value;
+//    long value;
 };
 
 Type NodeType {
@@ -16,7 +16,7 @@ Node* recursiveMethod(ThreadRuntime* thread, unsigned int recursionLimit = 100) 
     Node *node, *node1;
 
     node = (Node*) thread->allocator.alloc(&NodeType);
-    node->value = recursionLimit;
+//    node->value = recursionLimit;
 
 //    ((Node*) thread->pointerStack[pointerStackOffset + 0])->nextNode = (Node*) alloc(thread, &NodeType);
 //    ((Node*) thread->pointerStack[pointerStackOffset + 0])->nextNode->value = recursionLimit;
@@ -70,11 +70,12 @@ int realMain(ThreadRuntime *runtime) {
 
     auto start = std::chrono::steady_clock::now();
 
-    long iters = 1024 * 1024 * 2;
+    long iters = 1024 * 1024 * 3;
 
     for (int iter = 0; iter < iters; iter++) {
         auto raii = runtime->allocator.getRAII();
         for (int i = 0; i < size; i++) {
+            runtime->allocator.dealloc(nodes[i]);
             nodes[i] = (Node*) runtime->allocator.alloc(&NodeType);
         }
     }
