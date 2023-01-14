@@ -26,11 +26,11 @@ public class AllocBench {
         return node.hashCode() < node1.hashCode() ? node : node1;
     }
 
-    public static void main2(String... args) {
+    public static void main(String... args) {
         Instant instant = Instant.now();
 
-        long iters = 1 << 21;
-        int recursion = 1000;
+        long iters = 1 << 24;
+        int recursion = 100;
 
         for (int i = 0; i < iters; i++) {
             recursiveFunction(recursion);
@@ -66,14 +66,13 @@ public class AllocBench {
         System.out.println(lowest);
     }
 
-    public static void main(String... args) throws Exception {
+    public static void main2(String... args) throws Exception {
 
 //         new Thread(AllocBench::printLowest).start();
 
         Instant instant = Instant.now();
 
-        long iters = 1024 * 100;
-        iters *= Long.parseLong(args[0]);
+        long iters = 1024 * 1024 * 3;
 
         Node lowest = new Node();
 

@@ -91,16 +91,16 @@ int realMain(ThreadRuntime *runtime) {
     return 0;
 }
 
-int main() {
+int mainZ() {
     ThreadRuntime* main = initRuntime();
     return realMain(main);
 }
 
-int main2() {
+int main() {
     ThreadRuntime* main = initRuntime();
 
-    const auto iters = 1 << 27;
-    const auto recursion = 1;
+    const auto iters = 1 << 24;
+    const auto recursion = 100;
 
     auto start = std::chrono::steady_clock::now();
     for (int i = 0; i < iters; i++) {
