@@ -40,39 +40,50 @@ struct GC {
 struct Allocator {
     HeapPage *firstPage;                     // pointer to the first heap page
     HeapPage *lastPage;                     // pointer to the last heap page
-    uintptr_t pointerIdx = 0;               // keeps track of the current position in the pointer stack
+    uintptr_t psUsedHeight = 0;               // keeps track of the current position in the pointer stack
     uintptr_t pointerStack[4096] = {0};     // keeps track of stack GC roots
 
 public:
     explicit Allocator();
 
-    class ReserveStackSpaceRAII {
+    class AllocatorRAII {
     private:
         Allocator *allocator;
-        uintptr_t oldIdx;
+        uintptr_t stackFrameOffset;
+        size_t frameSize;
 
     public:
-        ReserveStackSpaceRAII(Allocator *alloc) {
+        AllocatorRAII(Allocator *alloc, size_t frameSize) {
             this->allocator = alloc;
-            this->oldIdx = alloc->pointerIdx;
+            this->stackFrameOffset = alloc->psUsedHeight;
+            alloc->psUsedHeight += frameSize;
+            this->frameSize = frameSize;
         }
 
-        ~ReserveStackSpaceRAII() {
-            this->allocator->pointerIdx = this->oldIdx;
+        void *alloc(Type *type, size_t idx) {
+            return this->allocator->alloc(type, this->stackFrameOffset + idx);
+        }
+
+        void dealloc(void* ptr) {
+            this->allocator->dealloc(ptr);
+        }
+
+        ~AllocatorRAII() {
+            this->allocator->psUsedHeight -= this->frameSize;
         }
     };
 
-    inline ReserveStackSpaceRAII getRAII() {
-        return {this};
+    inline AllocatorRAII getRAII(size_t size) {
+        return {this, size};
     }
 
-    void *alloc(Type *type);
+    void *alloc(Type *type, size_t idx);
 
     void dealloc(void *ptr);
 };
 
 struct ThreadRuntime {
-    ThreadRuntime *nextThread;              // pointer to the next thread
+    ThreadRuntime *nextRuntime;             // pointer to the next thread
     Allocator allocator;                    // handles on-heap allocations
     bool isActive;                          // whether the thread is actually used (i.e. has a backing std::thread)
 };

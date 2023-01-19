@@ -25,7 +25,7 @@ inline void memzero(void *data, size_t n) {
     for (int i = 0; i < n; i++) ptr[i] = 0;
 }
 
-tryAllocateResp tryAllocate(HeapPage *heapPage, HeapAlloc *alloc, Type *type, bool allowSpecialPurpose = false) {
+tryAllocateResp tryAllocateInAlloc(HeapPage *heapPage, HeapAlloc *alloc, Type *type) {
     auto requiredAllocWords = type->requiredWords;
 
     tryAllocateResp resp {nullptr, nullptr};
@@ -36,7 +36,7 @@ tryAllocateResp tryAllocate(HeapPage *heapPage, HeapAlloc *alloc, Type *type, bo
         // the split criterion is: the newly split allocation must have at least 10 usable words available
         bool worthSplitting = alloc->usableWords >= requiredAllocWords + HEAP_ALLOC_HEADER_WORDS + 0;
 
-        if (worthSplitting) [[likely]] {
+        if (worthSplitting) {
             auto oldUsableWords = alloc->usableWords;
 
             // adapting the 'old' big allocation
@@ -59,7 +59,7 @@ tryAllocateResp tryAllocate(HeapPage *heapPage, HeapAlloc *alloc, Type *type, bo
             alloc->colour = RUNTIME->gc->colour;
 
             HeapAlloc *nextAlloc = getNextAlloc(heapPage, alloc);
-            if (nextAlloc && !nextAlloc->type) [[likely]] resp.hint = nextAlloc;    // guaranteed to be free
+            if (nextAlloc && !nextAlloc->type) resp.hint = nextAlloc;    // guaranteed to be free
         }
 
         auto allocPtr = getDataPtr(alloc);
@@ -107,7 +107,7 @@ tryAllocateResp tryAllocate(HeapPage *heapPage, HeapAlloc *alloc, Type *type, bo
             alloc->type = type;
             alloc->colour = RUNTIME->gc->colour;
 
-            if (nextAlloc && !nextAlloc->type) [[likely]] resp.hint = nextAlloc;    // guaranteed to be free
+            if (nextAlloc && !nextAlloc->type) resp.hint = nextAlloc;    // guaranteed to be free
         }
 
         auto allocPtr = getDataPtr(alloc);
@@ -131,8 +131,8 @@ void* tryAllocate(HeapPage *heapPage, Type *type, bool allowSpecialPurpose = fal
     HeapAlloc *alloc;
 
     alloc = heapPage->lastFreeAlloc;
-    if (alloc) [[likely]] {
-        auto resp = tryAllocate(heapPage, alloc, type, allowSpecialPurpose);
+    if (alloc) {
+        auto resp = tryAllocateInAlloc(heapPage, alloc, type);
         if (resp.dataPtr) {
             heapPage->lastFreeAlloc = resp.hint;
             return resp.dataPtr;
@@ -140,8 +140,8 @@ void* tryAllocate(HeapPage *heapPage, Type *type, bool allowSpecialPurpose = fal
     }
 
     alloc = heapPage->middleFreeAlloc;
-    if (alloc) [[unlikely]] {
-        auto resp = tryAllocate(heapPage, alloc, type, allowSpecialPurpose);
+    if (alloc) {
+        auto resp = tryAllocateInAlloc(heapPage, alloc, type);
         if (resp.dataPtr) {
             heapPage->middleFreeAlloc = resp.hint;
             return resp.dataPtr;
@@ -185,10 +185,10 @@ HeapPage *createNewHeapPage(size_t minUsablePageWords = HEAP_PAGE_SIZE_WORDS) {
     return newPage;
 }
 
-void *Allocator::alloc(Type *type) {
+void *Allocator::alloc(Type *type, size_t idx) {
     void* dataPtr = tryAllocate(lastPage, type);
 
-    if (!dataPtr) [[unlikely]] {
+    if (!dataPtr) {
         auto *newPage = createNewHeapPage(HEAP_ALLOC_HEADER_WORDS + type->requiredWords);
         dataPtr = tryAllocate(newPage, type, true);
 
@@ -205,14 +205,13 @@ void *Allocator::alloc(Type *type) {
         lastPage = newPage;
     }
 
-    this->pointerStack[this->pointerIdx] = (uintptr_t) dataPtr;
-    this->pointerIdx += 1;
+    this->pointerStack[idx] = (uintptr_t) dataPtr;
 
     return dataPtr;
 }
 
 void Allocator::dealloc(void *dataPtr) {
-    if (dataPtr == nullptr) [[unlikely]] return;
+    if (dataPtr == nullptr) return;
     HeapAlloc *alloc = (HeapAlloc*) ((uintptr_t) dataPtr - HEAP_ALLOC_HEADER_BYTES);
     alloc->type = nullptr;
     alloc->parentPage->middleFreeAlloc = alloc;
@@ -229,7 +228,7 @@ void markPtrRecursive(uintptr_t dataPtr, std::queue<uintptr_t> &queue, unsigned 
 
     auto type = alloc->type;
 
-    if (!type) [[unlikely]] return;
+    if (!type) return;
 
     auto pointersCount = type->pointersCount;
 
@@ -314,13 +313,13 @@ void gcST() {
     auto *thread = RUNTIME->mainThread;
     while (thread) {
         gcMarkThread(thread);
-        thread = thread->nextThread;
+        thread = thread->nextRuntime;
     }
 
     thread = RUNTIME->mainThread;
     while (thread) {
         gcSweepThread(thread, thread->allocator.lastPage);
-        thread = thread->nextThread;
+        thread = thread->nextRuntime;
     }
 
     RUNTIME->gc->gcMutex.unlock();
@@ -339,7 +338,7 @@ void gc() {
     auto *thread = RUNTIME->mainThread;
     while (thread) {
         workerThreads.push_back(new std::thread(gcMarkThread, thread));
-        thread = thread->nextThread;
+        thread = thread->nextRuntime;
     }
 
     for (auto *workerThread : workerThreads) {
@@ -352,7 +351,7 @@ void gc() {
     thread = RUNTIME->mainThread;
     while (thread) {
         workerThreads.push_back(new std::thread(gcSweepThread, thread, thread->allocator.lastPage));
-        thread = thread->nextThread;
+        thread = thread->nextRuntime;
     }
 
     for (auto *workerThread : workerThreads) {
@@ -394,7 +393,7 @@ ThreadRuntime* initRuntime() {
     };
 
     RUNTIME->mainThread = new ThreadRuntime{
-            .nextThread = nullptr,
+            .nextRuntime = nullptr,
             .allocator = Allocator(),
             .isActive = true,
     };

@@ -12,10 +12,10 @@ Type NodeType {
 };
 
 Node* recursiveMethod(ThreadRuntime* thread, unsigned int recursionLimit = 100) {
-    auto raii = thread->allocator.getRAII();
+    auto raii = thread->allocator.getRAII(1);
     Node *node, *node1;
 
-    node = (Node*) thread->allocator.alloc(&NodeType);
+    node = (Node*) thread->allocator.alloc(&NodeType, 0);
 //    node->value = recursionLimit;
 
 //    ((Node*) thread->pointerStack[pointerStackOffset + 0])->nextNode = (Node*) alloc(thread, &NodeType);
@@ -64,48 +64,90 @@ int mainYY() {
     return 0;
 }
 
-int realMain(ThreadRuntime *runtime) {
-    const auto size = 1024;
+const auto size = 1024;
+long iters = 1024 * 1024 * 3;
+
+void loop(ThreadRuntime *runtime) {
     Node *nodes[size] = {nullptr};
+
+    auto alloc = runtime->allocator.getRAII(size);
+
+    for (long iter = 0; iter < iters; iter++) {
+        for (int i = 0; i < size; i++) {
+//            alloc.dealloc(nodes[i]);
+            nodes[i] = (Node*) alloc.alloc(&NodeType, 0);
+        }
+    }
+}
+
+int realMain(ThreadRuntime *runtime) {
 
     auto start = std::chrono::steady_clock::now();
 
-    long iters = 1024 * 1024 * 3;
+    ThreadRuntime *r1 = new ThreadRuntime{
+            .nextRuntime = nullptr,
+            .allocator = Allocator(),
+            .isActive = true,
+    };
 
-    for (int iter = 0; iter < iters; iter++) {
-        auto raii = runtime->allocator.getRAII();
-        for (int i = 0; i < size; i++) {
-            runtime->allocator.dealloc(nodes[i]);
-            nodes[i] = (Node*) runtime->allocator.alloc(&NodeType);
-        }
-    }
+    ThreadRuntime *r2 = new ThreadRuntime{
+            .nextRuntime = nullptr,
+            .allocator = Allocator(),
+            .isActive = true,
+    };
+    r1->nextRuntime = r2;
+
+    ThreadRuntime *r3 = new ThreadRuntime{
+            .nextRuntime = nullptr,
+            .allocator = Allocator(),
+            .isActive = true,
+    };
+    r2->nextRuntime = r3;
+
+    ThreadRuntime *r4 = new ThreadRuntime{
+            .nextRuntime = nullptr,
+            .allocator = Allocator(),
+            .isActive = true,
+    };
+    r3->nextRuntime = r4;
+
+    runtime->nextRuntime = r1;
+
+    auto const threadCount = 4;
+
+    auto t1 = std::thread(loop, r1);
+    auto t2 = std::thread(loop, r2);
+    auto t3 = std::thread(loop, r3);
+    auto t4 = std::thread(loop, r4);
+
+    t1.join();
+    t2.join();
+    t3.join();
+    t4.join();
 
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
 
     std::cout << ms << std::endl;
 
-    std::cout << "Allocs per sec (in millions) " << ((size * iters) / ms * 1000) / 1000000.0 << std::endl;
+    std::cout << "Allocs per sec (in millions) " << ((size * threadCount * iters) / ms * 1000) / 1000000.0 << std::endl;
 
     runtime->isActive = false;
 
     return 0;
 }
 
-int mainZ() {
+int main() {
     ThreadRuntime* main = initRuntime();
     return realMain(main);
 }
 
-int main() {
+int mainPP() {
     ThreadRuntime* main = initRuntime();
 
     const auto iters = 1 << 24;
     const auto recursion = 100;
 
     auto start = std::chrono::steady_clock::now();
-    for (int i = 0; i < iters; i++) {
-        recursiveMethod(main, recursion);
-    }
 
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
 
