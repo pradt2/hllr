@@ -113,17 +113,17 @@ int realMain(ThreadRuntime *runtime) {
 
     runtime->nextRuntime = r1;
 
-    auto const threadCount = 4;
+    auto const threadCount = 1;
 
     auto t1 = std::thread(loop, r1);
-    auto t2 = std::thread(loop, r2);
-    auto t3 = std::thread(loop, r3);
-    auto t4 = std::thread(loop, r4);
+//    auto t2 = std::thread(loop, r2);
+//    auto t3 = std::thread(loop, r3);
+//    auto t4 = std::thread(loop, r4);
 
     t1.join();
-    t2.join();
-    t3.join();
-    t4.join();
+//    t2.join();
+//    t3.join();
+//    t4.join();
 
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
 

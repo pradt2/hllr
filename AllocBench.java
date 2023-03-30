@@ -94,19 +94,19 @@ public class AllocBench {
 
         Thread t1 = new Thread(() -> AllocBench.loop(nodes1));
         t1.start();
-        Thread t2 = new Thread(() -> AllocBench.loop(nodes2));
-        t2.start();
-        Thread t3 = new Thread(() -> AllocBench.loop(nodes3));
-        t3.start();
-        Thread t4 = new Thread(() -> AllocBench.loop(nodes4));
-        t4.start();
+//         Thread t2 = new Thread(() -> AllocBench.loop(nodes2));
+//         t2.start();
+//         Thread t3 = new Thread(() -> AllocBench.loop(nodes3));
+//         t3.start();
+//         Thread t4 = new Thread(() -> AllocBench.loop(nodes4));
+//         t4.start();
 
-        int threadCount = 4;
+        int threadCount = 1;
 
         t1.join();
-        t2.join();
-        t3.join();
-        t4.join();
+//         t2.join();
+//         t3.join();
+//         t4.join();
 
         Instant now = Instant.now();
 
