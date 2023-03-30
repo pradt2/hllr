@@ -1,16 +1,16 @@
-#include <vector>
 #include <cstdlib>
 #include <chrono>
 #include <iostream>
 #include <list>
+#include <vector>
 
-#define HEAP_PAGE_SIZE_WORDS 128000U
+#define HEAP_PAGE_SIZE_WORDS 128000
 #define SMALL_ALLOC_WORDS (32 + 1)
 #define HEAP_PAGE_MIN_FREE (HEAP_PAGE_SIZE_WORDS - SMALL_ALLOC_WORDS)
 
 class Allocator {
     std::list<uintptr_t*> pages;
-    std::size_t currPageWordsUsed;
+    long currPageWordsUsed;
 
     void add_page() {
         this->pages.push_back((std::uintptr_t*) calloc(sizeof(std::uintptr_t), HEAP_PAGE_SIZE_WORDS));
@@ -23,7 +23,7 @@ public:
         this->add_page();
     }
 
-    void* alloc_small(uintptr_t type, size_t size) {
+    void* alloc_small(uintptr_t type, long size) {
         uintptr_t* lastPage = pages.back();
         lastPage[currPageWordsUsed] = (uintptr_t) lastPage;
         lastPage[currPageWordsUsed + 1] = type;
@@ -38,12 +38,26 @@ public:
         }
     }
 
+    void *alloc_big(uintptr_t type, long size) {
+        if (HEAP_PAGE_SIZE_WORDS - 2 - this->currPageWordsUsed >= size)  {
+        } else  {
+            this->add_page();
+        }
+
+        uintptr_t* lastPage = pages.back();
+        lastPage[currPageWordsUsed] = (uintptr_t) lastPage;
+        lastPage[currPageWordsUsed + 1] = type;
+        uintptr_t* alloc = lastPage + currPageWordsUsed + 2;
+        currPageWordsUsed += 2 + size;
+
+        return alloc;
+    }
+
     void wipe() {
         for (auto *page : this->pages) {
             free(page);
         }
         this->pages.clear();
-//        this->pages.reserve(128);
         this->add_page();
     }
 };
@@ -61,7 +75,7 @@ int main() {
     for (long iter = 0; iter < size; iter++) {
         for (int i = 0; i < iters; i++) {
 //            alloc.dealloc(nodes[i]);
-            nodes[iter] =
+//            nodes[iter] =
                     (uintptr_t* ) alloc.alloc_small(1, 0);
         }
         if (iter % 2 == 0) alloc.wipe();
