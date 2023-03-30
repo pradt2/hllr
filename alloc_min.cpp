@@ -2,13 +2,14 @@
 #include <cstdlib>
 #include <chrono>
 #include <iostream>
+#include <list>
 
 #define HEAP_PAGE_SIZE_WORDS 128000U
 #define SMALL_ALLOC_WORDS (32 + 1)
 #define HEAP_PAGE_MIN_FREE (HEAP_PAGE_SIZE_WORDS - SMALL_ALLOC_WORDS)
 
 class Allocator {
-    std::vector<uintptr_t*> pages;
+    std::list<uintptr_t*> pages;
     std::size_t currPageWordsUsed;
 
     void add_page() {
@@ -18,6 +19,7 @@ class Allocator {
 
 public:
     explicit Allocator() {
+//        this->pages.reserve(128);
         this->add_page();
     }
 
@@ -41,6 +43,7 @@ public:
             free(page);
         }
         this->pages.clear();
+//        this->pages.reserve(128);
         this->add_page();
     }
 };
@@ -59,7 +62,7 @@ int main() {
         for (int i = 0; i < iters; i++) {
 //            alloc.dealloc(nodes[i]);
             nodes[iter] =
-                    (uintptr_t* ) alloc.alloc_small(1, 1);
+                    (uintptr_t* ) alloc.alloc_small(1, 0);
         }
         if (iter % 2 == 0) alloc.wipe();
     }
