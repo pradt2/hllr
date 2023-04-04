@@ -3,6 +3,7 @@
 #include <iostream>
 #include <list>
 #include <vector>
+#include <cstring>
 
 #define HEAP_PAGE_SIZE_WORDS 128000
 #define SMALL_ALLOC_WORDS (32 + 1)
@@ -10,45 +11,47 @@
 
 class Allocator {
     std::list<uintptr_t*> pages;
+    uintptr_t *lastPage;
     long currPageWordsUsed;
 
-    void add_page() {
-        this->pages.push_back((std::uintptr_t*) calloc(sizeof(std::uintptr_t), HEAP_PAGE_SIZE_WORDS));
+    void add_page(unsigned long size = HEAP_PAGE_SIZE_WORDS) {
+        this->pages.push_back((std::uintptr_t*) malloc(sizeof(std::uintptr_t) * size));
+        this->lastPage = this->pages.back();
         this->currPageWordsUsed = 0;
     }
 
 public:
     explicit Allocator() {
-//        this->pages.reserve(128);
         this->add_page();
     }
 
     void* alloc_small(uintptr_t type, long size) {
-        uintptr_t* lastPage = pages.back();
+        if (currPageWordsUsed > HEAP_PAGE_MIN_FREE) {
+            this->add_page();
+        }
+
         lastPage[currPageWordsUsed] = (uintptr_t) lastPage;
         lastPage[currPageWordsUsed + 1] = type;
         uintptr_t* alloc = lastPage + currPageWordsUsed + 2;
         currPageWordsUsed += 2 + size;
 
-        if (currPageWordsUsed <= HEAP_PAGE_MIN_FREE) [[likely]] {
-            return alloc;
-        } else [[unlikely]] {
-            this->add_page();
-            return alloc;
-        }
+        std::memset(alloc, 0, size); // faster than the libsodium method
+
+        return alloc;
     }
 
     void *alloc_big(uintptr_t type, long size) {
         if (HEAP_PAGE_SIZE_WORDS - 2 - this->currPageWordsUsed >= size)  {
-        } else  {
+        } else {
             this->add_page();
         }
 
-        uintptr_t* lastPage = pages.back();
         lastPage[currPageWordsUsed] = (uintptr_t) lastPage;
         lastPage[currPageWordsUsed + 1] = type;
         uintptr_t* alloc = lastPage + currPageWordsUsed + 2;
         currPageWordsUsed += 2 + size;
+
+        std::memset(alloc, 0, size);
 
         return alloc;
     }
@@ -75,8 +78,8 @@ int main() {
     for (long iter = 0; iter < size; iter++) {
         for (int i = 0; i < iters; i++) {
 //            alloc.dealloc(nodes[i]);
-//            nodes[iter] =
-                    (uintptr_t* ) alloc.alloc_small(1, 0);
+            nodes[iter] =
+                    (uintptr_t* ) alloc.alloc_small(1, 2);
         }
         if (iter % 2 == 0) alloc.wipe();
     }
