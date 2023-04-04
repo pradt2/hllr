@@ -15,7 +15,7 @@ class Allocator {
     long currPageWordsUsed;
 
     void add_page(unsigned long size = HEAP_PAGE_SIZE_WORDS) {
-        this->pages.push_back((std::uintptr_t*) malloc(sizeof(std::uintptr_t) * size));
+        this->pages.push_back(new uintptr_t[size]);
         this->lastPage = this->pages.back();
         this->currPageWordsUsed = 0;
     }
@@ -58,7 +58,7 @@ public:
 
     void wipe() {
         for (auto *page : this->pages) {
-            free(page);
+            delete[] page;
         }
         this->pages.clear();
         this->add_page();
@@ -73,18 +73,17 @@ int main() {
 
     auto **nodes = new uintptr_t*[iters];
 
-    auto start = std::chrono::steady_clock::now();
+    auto start = std::chrono::high_resolution_clock::now();
 
     for (long iter = 0; iter < size; iter++) {
         for (int i = 0; i < iters; i++) {
-//            alloc.dealloc(nodes[i]);
-            nodes[iter] =
+//            nodes[i] =
                     (uintptr_t* ) alloc.alloc_small(1, 2);
         }
         if (iter % 2 == 0) alloc.wipe();
     }
 
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start).count();
 
     std::cout << ms << std::endl;
 
